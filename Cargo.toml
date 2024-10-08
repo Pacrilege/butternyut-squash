@@ -1,16 +1,13 @@
 [package]
-name = "egui_node_graph2_example"
+name = "Synthi"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.56"
 
-[lib]
-crate-type = ["cdylib", "rlib"]
-
 [dependencies]
 eframe = "0.29"
 egui_glow = "0.29"
-egui_node_graph2 = { path = "../egui_node_graph2" }
+egui_node_graph2 = "0.6.0"
 anyhow = "1.0"
 serde = { version = "1.0", optional = true }
 
