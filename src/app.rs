@@ -5,6 +5,11 @@ use egui_node_graph2::*;
 
 // ========= First, define your user data types =============
 
+// Wave struct describing sine waves and stuff
+struct Wave {
+
+}
+
 /// The NodeData holds a custom data struct inside each node. It's useful to
 /// store additional information that doesn't live in parameters. For this
 /// example, the node data stores the template (i.e. the "type") of the node.
@@ -19,8 +24,7 @@ pub struct MyNodeData {
 #[derive(PartialEq, Eq)]
 #[cfg_attr(feature = "persistence", derive(serde::Serialize, serde::Deserialize))]
 pub enum MyDataType {
-    Scalar,
-    Vec2,
+    Function,
 }
 
 /// In the graph, input parameters can optionally have a constant value. This
@@ -33,36 +37,18 @@ pub enum MyDataType {
 #[derive(Copy, Clone, Debug)]
 #[cfg_attr(feature = "persistence", derive(serde::Serialize, serde::Deserialize))]
 pub enum MyValueType {
-    Vec2 { value: egui::Vec2 },
-    Scalar { value: f32 },
+    Function { value: Wave },
 }
 
 impl Default for MyValueType {
     fn default() -> Self {
         // NOTE: This is just a dummy `Default` implementation. The library
         // requires it to circumvent some internal borrow checker issues.
-        Self::Scalar { value: 0.0 }
+        Self::Function { value: Wave {} }
     }
 }
 
 impl MyValueType {
-    /// Tries to downcast this value type to a vector
-    pub fn try_to_vec2(self) -> anyhow::Result<egui::Vec2> {
-        if let MyValueType::Vec2 { value } = self {
-            Ok(value)
-        } else {
-            anyhow::bail!("Invalid cast from {:?} to vec2", self)
-        }
-    }
-
-    /// Tries to downcast this value type to a scalar
-    pub fn try_to_scalar(self) -> anyhow::Result<f32> {
-        if let MyValueType::Scalar { value } = self {
-            Ok(value)
-        } else {
-            anyhow::bail!("Invalid cast from {:?} to scalar", self)
-        }
-    }
 }
 
 /// NodeTemplate is a mechanism to define node templates. It's what the graph
@@ -71,13 +57,8 @@ impl MyValueType {
 #[derive(Clone, Copy)]
 #[cfg_attr(feature = "persistence", derive(serde::Serialize, serde::Deserialize))]
 pub enum MyNodeTemplate {
-    MakeScalar,
-    AddScalar,
-    SubtractScalar,
-    MakeVector,
-    AddVector,
-    SubtractVector,
-    VectorTimesScalar,
+    Modulator,
+    Carrier
 }
 
 /// The response type is used to encode side-effects produced when drawing a
@@ -105,15 +86,13 @@ pub struct MyGraphState {
 impl DataTypeTrait<MyGraphState> for MyDataType {
     fn data_type_color(&self, _user_state: &mut MyGraphState) -> egui::Color32 {
         match self {
-            MyDataType::Scalar => egui::Color32::from_rgb(38, 109, 211),
-            MyDataType::Vec2 => egui::Color32::from_rgb(238, 207, 109),
+            MyDataType::Function => egui::Color32::from_rgb(38, 109, 211),
         }
     }
 
     fn name(&self) -> Cow<'_, str> {
         match self {
-            MyDataType::Scalar => Cow::Borrowed("scalar"),
-            MyDataType::Vec2 => Cow::Borrowed("2d vector"),
+            MyDataType::Function => Cow::Borrowed("waveform"),
         }
     }
 }
@@ -129,26 +108,16 @@ impl NodeTemplateTrait for MyNodeTemplate {
 
     fn node_finder_label(&self, _user_state: &mut Self::UserState) -> Cow<'_, str> {
         Cow::Borrowed(match self {
-            MyNodeTemplate::MakeScalar => "New scalar",
-            MyNodeTemplate::AddScalar => "Scalar add",
-            MyNodeTemplate::SubtractScalar => "Scalar subtract",
-            MyNodeTemplate::MakeVector => "New vector",
-            MyNodeTemplate::AddVector => "Vector add",
-            MyNodeTemplate::SubtractVector => "Vector subtract",
-            MyNodeTemplate::VectorTimesScalar => "Vector times scalar",
+            MyNodeTemplate::Modulator => "Modulator",
+            MyNodeTemplate::Carrier => "Carrier",
         })
     }
 
     // this is what allows the library to show collapsible lists in the node finder.
     fn node_finder_categories(&self, _user_state: &mut Self::UserState) -> Vec<&'static str> {
         match self {
-            MyNodeTemplate::MakeScalar
-            | MyNodeTemplate::AddScalar
-            | MyNodeTemplate::SubtractScalar => vec!["Scalar"],
-            MyNodeTemplate::MakeVector
-            | MyNodeTemplate::AddVector
-            | MyNodeTemplate::SubtractVector => vec!["Vector"],
-            MyNodeTemplate::VectorTimesScalar => vec!["Vector", "Scalar"],
+            MyNodeTemplate::Modulator => vec![],
+            MyNodeTemplate::SubtractScalar => vec![],
         }
     }
 
@@ -171,88 +140,36 @@ impl NodeTemplateTrait for MyNodeTemplate {
         // The nodes are created empty by default. This function needs to take
         // care of creating the desired inputs and outputs based on the template
 
-        // We define some closures here to avoid boilerplate. Note that this is
-        // entirely optional.
-        let input_scalar = |graph: &mut MyGraph, name: &str| {
-            graph.add_input_param(
-                node_id,
-                name.to_string(),
-                MyDataType::Scalar,
-                MyValueType::Scalar { value: 0.0 },
-                InputParamKind::ConnectionOrConstant,
-                true,
-            );
-        };
-        let input_vector = |graph: &mut MyGraph, name: &str| {
-            graph.add_input_param(
-                node_id,
-                name.to_string(),
-                MyDataType::Vec2,
-                MyValueType::Vec2 {
-                    value: egui::vec2(0.0, 0.0),
-                },
-                InputParamKind::ConnectionOrConstant,
-                true,
-            );
-        };
-
-        let output_scalar = |graph: &mut MyGraph, name: &str| {
-            graph.add_output_param(node_id, name.to_string(), MyDataType::Scalar);
-        };
-        let output_vector = |graph: &mut MyGraph, name: &str| {
-            graph.add_output_param(node_id, name.to_string(), MyDataType::Vec2);
-        };
-
         match self {
-            MyNodeTemplate::AddScalar => {
+            MyNodeTemplate::Modulator => {
                 // The first input param doesn't use the closure so we can comment
                 // it in more detail.
                 graph.add_input_param(
                     node_id,
                     // This is the name of the parameter. Can be later used to
                     // retrieve the value. Parameter names should be unique.
-                    "A".into(),
+                    "Modulation".into(),
                     // The data type for this input. In this case, a scalar
-                    MyDataType::Scalar,
+                    MyDataType::Function,
                     // The value type for this input. We store zero as default
-                    MyValueType::Scalar { value: 0.0 },
+                    MyValueType::Function { value: Wave {} },
                     // The input parameter kind. This allows defining whether a
                     // parameter accepts input connections and/or an inline
                     // widget to set its value.
                     InputParamKind::ConnectionOrConstant,
                     true,
                 );
-                input_scalar(graph, "B");
-                output_scalar(graph, "out");
+                graph.add_output_param(node_id, "Waveform".into(), MyDataType::Function);
             }
-            MyNodeTemplate::SubtractScalar => {
-                input_scalar(graph, "A");
-                input_scalar(graph, "B");
-                output_scalar(graph, "out");
-            }
-            MyNodeTemplate::VectorTimesScalar => {
-                input_scalar(graph, "scalar");
-                input_vector(graph, "vector");
-                output_vector(graph, "out");
-            }
-            MyNodeTemplate::AddVector => {
-                input_vector(graph, "v1");
-                input_vector(graph, "v2");
-                output_vector(graph, "out");
-            }
-            MyNodeTemplate::SubtractVector => {
-                input_vector(graph, "v1");
-                input_vector(graph, "v2");
-                output_vector(graph, "out");
-            }
-            MyNodeTemplate::MakeVector => {
-                input_scalar(graph, "x");
-                input_scalar(graph, "y");
-                output_vector(graph, "out");
-            }
-            MyNodeTemplate::MakeScalar => {
-                input_scalar(graph, "value");
-                output_scalar(graph, "out");
+            MyNodeTemplate::Carrier => {
+                graph.add_input_param(
+                    node_id,
+                    "Signal".into(),
+                    MyDataType::Function,
+                    MyValueType::Function { value: Wave {} },
+                    InputParamKind::ConnectionOrConstant,
+                    true,
+                );
             }
         }
     }
@@ -267,13 +184,8 @@ impl NodeTemplateIter for AllMyNodeTemplates {
         // will use to display it to the user. Crates like strum can reduce the
         // boilerplate in enumerating all variants of an enum.
         vec![
-            MyNodeTemplate::MakeScalar,
-            MyNodeTemplate::MakeVector,
-            MyNodeTemplate::AddScalar,
-            MyNodeTemplate::SubtractScalar,
-            MyNodeTemplate::AddVector,
-            MyNodeTemplate::SubtractVector,
-            MyNodeTemplate::VectorTimesScalar,
+            MyNodeTemplate::Modulator,
+            MyNodeTemplate::Carrier,
         ]
     }
 }
@@ -293,21 +205,7 @@ impl WidgetValueTrait for MyValueType {
         // This trait is used to tell the library which UI to display for the
         // inline parameter widgets.
         match self {
-            MyValueType::Vec2 { value } => {
-                ui.label(param_name);
-                ui.horizontal(|ui| {
-                    ui.label("x");
-                    ui.add(DragValue::new(&mut value.x));
-                    ui.label("y");
-                    ui.add(DragValue::new(&mut value.y));
-                });
-            }
-            MyValueType::Scalar { value } => {
-                ui.horizontal(|ui| {
-                    ui.label(param_name);
-                    ui.add(DragValue::new(value));
-                });
-            }
+            MyValueType::Function => { }
         }
         // This allows you to return your responses from the inline widgets.
         Vec::new()
