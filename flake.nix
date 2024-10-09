@@ -18,6 +18,7 @@
           nativeBuildInputs = [
             pkg-config
             (rustVersion.override { extensions = [ "rust-src" ]; })
+            rust-analyzer
             clang
             mold
           ];
