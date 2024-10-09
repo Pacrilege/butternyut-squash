@@ -21,15 +21,38 @@
             rust-analyzer
             clang
             mold
-          ];
-          buildInputs = [
-            udev alsa-lib vulkan-loader
-            xorg.libX11 xorg.libXcursor xorg.libXi xorg.libXrandr # To use the x11 feature
-            libxkbcommon wayland # To use the wayland feature
+
+	    (vscode-with-extensions.override {
+	      vscode = vscodium;
+	      vscodeExtensions = with vscode-extensions; [
+		# Nix
+		bbenoist.nix
+		kamadorueda.alejandra
+
+		# Rust
+		rust-lang.rust-analyzer
+		tamasfe.even-better-toml
+		serayuzgur.crates
+
+		# Writing
+		yzhang.markdown-all-in-one
+		nvarner.typst-lsp
+		stkb.rewrap
+
+		# General
+		eamodio.gitlens
+		asvetliakov.vscode-neovim
+	      ];
+	    })
+	  ];
+	  buildInputs = [
+	    udev alsa-lib vulkan-loader
+	    xorg.libX11 xorg.libXcursor xorg.libXi xorg.libXrandr # To use the x11 feature
+	    libxkbcommon wayland # To use the wayland feature
 	    gtk3 libGL
-          ];
-          LD_LIBRARY_PATH = lib.makeLibraryPath buildInputs;
-        };
+	  ];
+	  LD_LIBRARY_PATH = lib.makeLibraryPath buildInputs;
+	};
       } 
     );
 }
