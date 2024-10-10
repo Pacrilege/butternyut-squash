@@ -2,20 +2,20 @@ use std::{borrow::Cow, collections::HashMap};
 
 use eframe::egui::{self, DragValue, TextStyle};
 use egui_node_graph2::*;
+use crate::fm::{self, SineWave};
+
 
 // ========= First, define your user data types =============
 
 // Wave struct describing sine waves and stuff
-struct Wave {
 
-}
 
 /// The NodeData holds a custom data struct inside each node. It's useful to
 /// store additional information that doesn't live in parameters. For this
 /// example, the node data stores the template (i.e. the "type") of the node.
 #[cfg_attr(feature = "persistence", derive(serde::Serialize, serde::Deserialize))]
 pub struct MyNodeData {
-    template: MyNodeTemplate,
+    template: fm::Stream,
 }
 
 /// `DataType`s are what defines the possible range of connections when
@@ -24,7 +24,8 @@ pub struct MyNodeData {
 #[derive(PartialEq, Eq)]
 #[cfg_attr(feature = "persistence", derive(serde::Serialize, serde::Deserialize))]
 pub enum MyDataType {
-    Function,
+    Stream,
+    Const,
 }
 
 /// In the graph, input parameters can optionally have a constant value. This
@@ -34,21 +35,39 @@ pub enum MyDataType {
 /// this library makes no attempt to check this consistency. For instance, it is
 /// up to the user code in this example to make sure no parameter is created
 /// with a DataType of Scalar and a ValueType of Vec2.
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 #[cfg_attr(feature = "persistence", derive(serde::Serialize, serde::Deserialize))]
 pub enum MyValueType {
-    Function { value: Wave },
+    Stream { value: fm::Stream },
+    Const  { value: f32 }
 }
 
 impl Default for MyValueType {
     fn default() -> Self {
         // NOTE: This is just a dummy `Default` implementation. The library
         // requires it to circumvent some internal borrow checker issues.
-        Self::Function { value: Wave {} }
+        Self::Stream { value: fm::Stream::Empty(fm::Empty::new()) }
     }
 }
 
 impl MyValueType {
+    /// Tries to downcast this value type to a vector
+    pub fn try_to_stream(self) -> anyhow::Result<fm::Stream> {
+        if let MyValueType::Stream { value } = self {
+            Ok(value)
+        } else {
+            anyhow::bail!("Invalid cast from {:?} to vec2", self)
+        }
+    }
+
+    /// Tries to downcast this value type to a scalar
+    pub fn try_to_const(self) -> anyhow::Result<f32> {
+        if let MyValueType::Const { value } = self {
+            Ok(value)
+        } else {
+            anyhow::bail!("Invalid cast from {:?} to scalar", self)
+        }
+    }
 }
 
 /// NodeTemplate is a mechanism to define node templates. It's what the graph
@@ -56,10 +75,7 @@ impl MyValueType {
 /// library how to convert a NodeTemplate into a Node.
 #[derive(Clone, Copy)]
 #[cfg_attr(feature = "persistence", derive(serde::Serialize, serde::Deserialize))]
-pub enum MyNodeTemplate {
-    Modulator,
-    Carrier
-}
+pub enum MyNodeTemplate {}
 
 /// The response type is used to encode side-effects produced when drawing a
 /// node in the graph. Most side-effects (creating new nodes, deleting existing
@@ -86,20 +102,22 @@ pub struct MyGraphState {
 impl DataTypeTrait<MyGraphState> for MyDataType {
     fn data_type_color(&self, _user_state: &mut MyGraphState) -> egui::Color32 {
         match self {
-            MyDataType::Function => egui::Color32::from_rgb(38, 109, 211),
+            MyDataType::Stream => egui::Color32::from_rgb(38, 109, 211),
+            MyDataType::Const  => egui::Color32::from_rgb(200, 15, 30),
         }
     }
 
     fn name(&self) -> Cow<'_, str> {
         match self {
-            MyDataType::Function => Cow::Borrowed("waveform"),
+            MyDataType::Stream => Cow::Borrowed("Stream"),
+            MyDataType::Const  => Cow::Borrowed("Constant"),
         }
     }
 }
 
 // A trait for the node kinds, which tells the library how to build new nodes
 // from the templates in the node finder
-impl NodeTemplateTrait for MyNodeTemplate {
+impl NodeTemplateTrait for fm::Stream {
     type NodeData = MyNodeData;
     type DataType = MyDataType;
     type ValueType = MyValueType;
@@ -108,16 +126,22 @@ impl NodeTemplateTrait for MyNodeTemplate {
 
     fn node_finder_label(&self, _user_state: &mut Self::UserState) -> Cow<'_, str> {
         Cow::Borrowed(match self {
-            MyNodeTemplate::Modulator => "Modulator",
-            MyNodeTemplate::Carrier => "Carrier",
+            Self::SineWave(_) => "Sine Wave",
+            Self::ModulatedSineWave(_) => "Modulator",
+            Self::Mix(_) => "Mix",
+            Self::Silence(_) => "Silence",
+            Self::Empty(_) => "Empty",
         })
     }
 
     // this is what allows the library to show collapsible lists in the node finder.
     fn node_finder_categories(&self, _user_state: &mut Self::UserState) -> Vec<&'static str> {
         match self {
-            MyNodeTemplate::Modulator => vec![],
-            MyNodeTemplate::SubtractScalar => vec![],
+            Self::SineWave(_) => vec![],
+            Self::ModulatedSineWave(_) => vec![],
+            Self::Mix(_) => vec![],
+            Self::Silence(_) => vec![],
+            Self::Empty(_) => vec![],
         }
     }
 
@@ -128,7 +152,7 @@ impl NodeTemplateTrait for MyNodeTemplate {
     }
 
     fn user_data(&self, _user_state: &mut Self::UserState) -> Self::NodeData {
-        MyNodeData { template: *self }
+        MyNodeData { template: self.clone() }
     }
 
     fn build_node(
@@ -139,53 +163,89 @@ impl NodeTemplateTrait for MyNodeTemplate {
     ) {
         // The nodes are created empty by default. This function needs to take
         // care of creating the desired inputs and outputs based on the template
-
         match self {
-            MyNodeTemplate::Modulator => {
+            Self::SineWave(_) => {
                 // The first input param doesn't use the closure so we can comment
                 // it in more detail.
                 graph.add_input_param(
                     node_id,
                     // This is the name of the parameter. Can be later used to
                     // retrieve the value. Parameter names should be unique.
-                    "Modulation".into(),
+                    "Frequency".into(),
                     // The data type for this input. In this case, a scalar
-                    MyDataType::Function,
+                    MyDataType::Stream,
                     // The value type for this input. We store zero as default
-                    MyValueType::Function { value: Wave {} },
+                    MyValueType::Stream { value: fm::Stream::Empty(fm::Empty::new()) },
                     // The input parameter kind. This allows defining whether a
                     // parameter accepts input connections and/or an inline
                     // widget to set its value.
                     InputParamKind::ConnectionOrConstant,
                     true,
                 );
-                graph.add_output_param(node_id, "Waveform".into(), MyDataType::Function);
+                graph.add_output_param(node_id, "Stream".into(), MyDataType::Stream);
             }
-            MyNodeTemplate::Carrier => {
+            Self::ModulatedSineWave(_) => {
                 graph.add_input_param(
                     node_id,
-                    "Signal".into(),
-                    MyDataType::Function,
-                    MyValueType::Function { value: Wave {} },
+                    "Frequency".into(),
+                    MyDataType::Const,
+                    MyValueType::Const { value: 0.0 },
                     InputParamKind::ConnectionOrConstant,
                     true,
                 );
+
+                graph.add_input_param(
+                    node_id,
+                    "Modulation".into(),
+                    MyDataType::Stream,
+                    MyValueType::Stream { value: fm::Stream::Empty(fm::Empty::new()) },
+                    InputParamKind::ConnectionOnly,
+                    true,
+                );
+
+                graph.add_output_param(node_id, "Stream".into(), MyDataType::Stream);
             }
+            Self::Mix(_) => {
+                graph.add_input_param(
+                    node_id,
+                    "A".into(),
+                    MyDataType::Stream,
+                    MyValueType::Stream { value: fm::Stream::Empty(fm::Empty::new()) },
+                    InputParamKind::ConnectionOnly,
+                    true,
+                );                 
+                
+                graph.add_input_param(
+                    node_id,
+                    "B".into(),
+                    MyDataType::Stream,
+                    MyValueType::Stream { value: fm::Stream::Empty(fm::Empty::new()) },
+                    InputParamKind::ConnectionOnly,
+                    true,
+                );
+
+                graph.add_output_param(node_id, "Stream".into(), MyDataType::Stream);
+            }
+            Self::Silence(_) => { graph.add_output_param(node_id, "Stream".into(), MyDataType::Stream); },
+            Self::Empty(_) => { graph.add_output_param(node_id, "Stream".into(), MyDataType::Stream); },
         }
     }
 }
 
 pub struct AllMyNodeTemplates;
 impl NodeTemplateIter for AllMyNodeTemplates {
-    type Item = MyNodeTemplate;
+    type Item = fm::Stream;
 
     fn all_kinds(&self) -> Vec<Self::Item> {
         // This function must return a list of node kinds, which the node finder
         // will use to display it to the user. Crates like strum can reduce the
         // boilerplate in enumerating all variants of an enum.
         vec![
-            MyNodeTemplate::Modulator,
-            MyNodeTemplate::Carrier,
+            fm::Stream::SineWave(fm::SineWave::new()),
+            fm::Stream::ModulatedSineWave(fm::ModulatedSineWave::new()),
+            fm::Stream::Mix(fm::Mix::new()),
+            fm::Stream::Silence(fm::Silence::new()),
+            fm::Stream::Empty(fm::Empty::new()),
         ]
     }
 }
@@ -205,7 +265,13 @@ impl WidgetValueTrait for MyValueType {
         // This trait is used to tell the library which UI to display for the
         // inline parameter widgets.
         match self {
-            MyValueType::Function => { }
+            MyValueType::Stream { value: _ } => { }
+            MyValueType::Const { value }  => { 
+                ui.horizontal(|ui| {
+                    ui.label(param_name);
+                    ui.add(DragValue::new(value));
+                });
+            }
         }
         // This allows you to return your responses from the inline widgets.
         Vec::new()
@@ -268,7 +334,7 @@ impl NodeDataTrait for MyNodeData {
 
 type MyGraph = Graph<MyNodeData, MyDataType, MyValueType>;
 type MyEditorState =
-    GraphEditorState<MyNodeData, MyDataType, MyValueType, MyNodeTemplate, MyGraphState>;
+    GraphEditorState<MyNodeData, MyDataType, MyValueType, fm::Stream, MyGraphState>;
 
 #[derive(Default)]
 pub struct NodeGraphExample {
@@ -406,56 +472,44 @@ pub fn evaluate_node(
             // the graphs, you can come up with your own evaluation semantics!
             populate_output(self.graph, self.outputs_cache, self.node_id, name, value)
         }
-        fn input_vector(&mut self, name: &str) -> anyhow::Result<egui::Vec2> {
-            self.evaluate_input(name)?.try_to_vec2()
+        fn input_stream(&mut self, name: &str) -> anyhow::Result<fm::Stream> {
+            self.evaluate_input(name)?.try_to_stream()
         }
-        fn input_scalar(&mut self, name: &str) -> anyhow::Result<f32> {
-            self.evaluate_input(name)?.try_to_scalar()
+        fn input_const(&mut self, name: &str) -> anyhow::Result<f32> {
+            self.evaluate_input(name)?.try_to_const()
         }
-        fn output_vector(&mut self, name: &str, value: egui::Vec2) -> anyhow::Result<MyValueType> {
-            self.populate_output(name, MyValueType::Vec2 { value })
+        fn output_stream(&mut self, name: &str, value: fm::Stream) -> anyhow::Result<MyValueType> {
+            self.populate_output(name, MyValueType::Stream { value })
         }
-        fn output_scalar(&mut self, name: &str, value: f32) -> anyhow::Result<MyValueType> {
-            self.populate_output(name, MyValueType::Scalar { value })
+        fn output_const(&mut self, name: &str, value: f32) -> anyhow::Result<MyValueType> {
+            self.populate_output(name, MyValueType::Const { value })
         }
     }
 
     let node = &graph[node_id];
     let mut evaluator = Evaluator::new(graph, outputs_cache, node_id);
-    match node.user_data.template {
-        MyNodeTemplate::AddScalar => {
-            let a = evaluator.input_scalar("A")?;
-            let b = evaluator.input_scalar("B")?;
-            evaluator.output_scalar("out", a + b)
+    match node.user_data.template.clone() {
+        fm::Stream::SineWave(mut wave) => {
+            wave.set_frequency(evaluator.input_const("Frequency")?);
+            evaluator.output_stream("Stream", fm::Stream::SineWave(wave))
         }
-        MyNodeTemplate::SubtractScalar => {
-            let a = evaluator.input_scalar("A")?;
-            let b = evaluator.input_scalar("B")?;
-            evaluator.output_scalar("out", a - b)
+        fm::Stream::ModulatedSineWave(mut wave) => {
+            wave.set_frequency(evaluator.input_const("Frequency")?);
+            wave.set_modulator(evaluator.input_stream("Modulator")?);
+
+            evaluator.output_stream("Stream", fm::Stream::ModulatedSineWave(wave))
         }
-        MyNodeTemplate::VectorTimesScalar => {
-            let scalar = evaluator.input_scalar("scalar")?;
-            let vector = evaluator.input_vector("vector")?;
-            evaluator.output_vector("out", vector * scalar)
+        fm::Stream::Mix(mut wave) => {
+            wave.set_stream_a(evaluator.input_stream("A")?);
+            wave.set_stream_b(evaluator.input_stream("B")?);
+
+            evaluator.output_stream("Stream", fm::Stream::Mix(wave))
         }
-        MyNodeTemplate::AddVector => {
-            let v1 = evaluator.input_vector("v1")?;
-            let v2 = evaluator.input_vector("v2")?;
-            evaluator.output_vector("out", v1 + v2)
+        fm::Stream::Silence(wave) => {
+            evaluator.output_stream("Stream", fm::Stream::Silence(wave))
         }
-        MyNodeTemplate::SubtractVector => {
-            let v1 = evaluator.input_vector("v1")?;
-            let v2 = evaluator.input_vector("v2")?;
-            evaluator.output_vector("out", v1 - v2)
-        }
-        MyNodeTemplate::MakeVector => {
-            let x = evaluator.input_scalar("x")?;
-            let y = evaluator.input_scalar("y")?;
-            evaluator.output_vector("out", egui::vec2(x, y))
-        }
-        MyNodeTemplate::MakeScalar => {
-            let value = evaluator.input_scalar("value")?;
-            evaluator.output_scalar("out", value)
+        fm::Stream::Empty(wave) => {
+            evaluator.output_stream("Stream", fm::Stream::Empty(wave))
         }
     }
 }
@@ -468,7 +522,7 @@ fn populate_output(
     value: MyValueType,
 ) -> anyhow::Result<MyValueType> {
     let output_id = graph[node_id].get_output(param_name)?;
-    outputs_cache.insert(output_id, value);
+    outputs_cache.insert(output_id, value.clone());
     Ok(value)
 }
 
@@ -486,7 +540,7 @@ fn evaluate_input(
         // The value was already computed due to the evaluation of some other
         // node. We simply return value from the cache.
         if let Some(other_value) = outputs_cache.get(&other_output_id) {
-            Ok(*other_value)
+            Ok(other_value.clone())
         }
         // This is the first time encountering this node, so we need to
         // recursively evaluate it.
@@ -495,13 +549,15 @@ fn evaluate_input(
             evaluate_node(graph, graph[other_output_id].node, outputs_cache)?;
 
             // Now that we know the value is cached, return it
-            Ok(*outputs_cache
+            Ok(outputs_cache
                 .get(&other_output_id)
-                .expect("Cache should be populated"))
+                .expect("Cache should be populated")
+                .clone()
+            )
         }
     }
     // No existing connection, take the inline value instead.
     else {
-        Ok(graph[input_id].value)
+        Ok(graph[input_id].value.clone())
     }
 }
