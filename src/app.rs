@@ -1,5 +1,6 @@
 use std::{borrow::Cow, collections::HashMap};
 
+use rodio::{OutputStreamHandle, OutputStream, Sink, source::Source};
 use eframe::egui::{self, DragValue, TextStyle};
 use egui_node_graph2::*;
 use crate::fm::{self, SineWave};
@@ -173,9 +174,9 @@ impl NodeTemplateTrait for fm::Stream {
                     // retrieve the value. Parameter names should be unique.
                     "Frequency".into(),
                     // The data type for this input. In this case, a scalar
-                    MyDataType::Stream,
+                    MyDataType::Const,
                     // The value type for this input. We store zero as default
-                    MyValueType::Stream { value: fm::Stream::Empty(fm::Empty::new()) },
+                    MyValueType::Const { value: 440.0 }, 
                     // The input parameter kind. This allows defining whether a
                     // parameter accepts input connections and/or an inline
                     // widget to set its value.
@@ -206,6 +207,15 @@ impl NodeTemplateTrait for fm::Stream {
                 graph.add_output_param(node_id, "Stream".into(), MyDataType::Stream);
             }
             Self::Mix(_) => {
+                graph.add_input_param(
+                    node_id,
+                    "p".into(),
+                    MyDataType::Const,
+                    MyValueType::Const { value: 0.5 },
+                    InputParamKind::ConnectionOrConstant,
+                    true,
+                );   
+
                 graph.add_input_param(
                     node_id,
                     "A".into(),
@@ -336,13 +346,30 @@ type MyGraph = Graph<MyNodeData, MyDataType, MyValueType>;
 type MyEditorState =
     GraphEditorState<MyNodeData, MyDataType, MyValueType, fm::Stream, MyGraphState>;
 
-#[derive(Default)]
 pub struct NodeGraphExample {
     // The `GraphEditorState` is the top-level object. You "register" all your
     // custom types by specifying it as its generic parameters.
     state: MyEditorState,
 
     user_state: MyGraphState,
+
+    sink: Sink,
+    stream: OutputStream, 
+    stream_handle: OutputStreamHandle,
+}
+
+impl Default for NodeGraphExample {
+    fn default() -> Self {
+        let (stream, stream_handle) = OutputStream::try_default().unwrap();
+        let sink = Sink::try_new(&stream_handle).unwrap();
+        Self { 
+            stream,
+            stream_handle,
+            sink, 
+            state: MyEditorState::default(),
+            user_state: MyGraphState::default()
+        }
+    }
 }
 
 #[cfg(feature = "persistence")]
@@ -395,8 +422,31 @@ impl eframe::App for NodeGraphExample {
             // connection is created
             if let NodeResponse::User(user_event) = node_response {
                 match user_event {
-                    MyResponse::SetActiveNode(node) => self.user_state.active_node = Some(node),
-                    MyResponse::ClearActiveNode => self.user_state.active_node = None,
+                    MyResponse::SetActiveNode(node) => {
+                        println!("start");
+                        self.user_state.active_node = Some(node);
+                        let stream = evaluate_node(&self.state.graph, node, &mut HashMap::new())
+                            .map(|value| {
+                                match value {
+                                    MyValueType::Stream { value } => value,
+                                    _ => fm::Stream::Empty(fm::Empty::new()),
+                                }
+                            }).expect("i dont know what to do");
+                        println!("fetched stream");
+                        self.sink.skip_one();
+                        println!("stopped sink");
+                        match stream {
+                            fm::Stream::SineWave(s) => { println!("indeed"); self.sink.append(s.clone())},
+                            fm::Stream::ModulatedSineWave(s) => self.sink.append(s),
+                            fm::Stream::Mix(s) => self.sink.append(s),
+                            _ => (),
+                        };
+                        println!("started stream");
+                    },
+                    MyResponse::ClearActiveNode => {
+                        self.sink.stop();
+                        self.user_state.active_node = None;
+                    }
                 }
             }
         }
@@ -495,7 +545,7 @@ pub fn evaluate_node(
         }
         fm::Stream::ModulatedSineWave(mut wave) => {
             wave.set_frequency(evaluator.input_const("Frequency")?);
-            wave.set_modulator(evaluator.input_stream("Modulator")?);
+            wave.set_modulator(evaluator.input_stream("Modulation")?);
 
             evaluator.output_stream("Stream", fm::Stream::ModulatedSineWave(wave))
         }
