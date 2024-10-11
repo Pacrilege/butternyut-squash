@@ -132,6 +132,10 @@ impl NodeTemplateTrait for fm::Stream {
             Self::Mix(_) => "Mix",
             Self::Silence(_) => "Silence",
             Self::Empty(_) => "Empty",
+            Self::Envelope(_) => "Envelope",
+            Self::Perlin (_) => "Perlin Noise",
+            Self::WhiteNoise (_) => "White Noise",
+
         })
     }
 
@@ -143,6 +147,9 @@ impl NodeTemplateTrait for fm::Stream {
             Self::Mix(_) => vec![],
             Self::Silence(_) => vec![],
             Self::Empty(_) => vec![],
+            Self::Envelope(_) => vec![],
+            Self::Perlin (_) => vec!["Noise"],
+            Self::WhiteNoise (_) => vec!["Noise"],
         }
     }
 
@@ -164,6 +171,16 @@ impl NodeTemplateTrait for fm::Stream {
     ) {
         // The nodes are created empty by default. This function needs to take
         // care of creating the desired inputs and outputs based on the template
+        let add_const_param = |graph: &mut Graph<MyNodeData, MyDataType, MyValueType>, name: &str, value: f32| {
+            graph.add_input_param(
+                node_id,
+                name.into(),
+                MyDataType::Const,
+                MyValueType::Const { value },
+                InputParamKind::ConnectionOrConstant,
+                true,
+            );
+        };
         match self {
             Self::SineWave(_) => {
                 // The first input param doesn't use the closure so we can comment
@@ -238,6 +255,39 @@ impl NodeTemplateTrait for fm::Stream {
             }
             Self::Silence(_) => { graph.add_output_param(node_id, "Stream".into(), MyDataType::Stream); },
             Self::Empty(_) => { graph.add_output_param(node_id, "Stream".into(), MyDataType::Stream); },
+            Self::Envelope(_) => {
+                graph.add_input_param(
+                    node_id,
+                    "Stream".into(),
+                    MyDataType::Stream,
+                    MyValueType::Stream { value: fm::Stream::default() }, 
+                    InputParamKind::ConnectionOrConstant,
+                    true,
+                );
+
+                add_const_param(graph, "Attack Duration", 0.3);
+                add_const_param(graph, "Attack Amplitude", 1.0);
+                add_const_param(graph, "Decay Duration", 0.3);
+                add_const_param(graph, "Sustain Duration", 2.0);
+                add_const_param(graph, "Sustain Amplitude", 0.6);
+                add_const_param(graph, "Release Duration", 1.0);
+
+                graph.add_output_param(node_id, "Stream".into(), MyDataType::Stream);
+            }
+            Self::WhiteNoise(_) => {
+                graph.add_output_param(node_id, "Stream".into(), MyDataType::Stream);
+            }
+            Self::Perlin(_) => {
+                graph.add_input_param(
+                    node_id,
+                    "Scale".into(),
+                    MyDataType::Const,
+                    MyValueType::Const { value: 1.0 }, 
+                    InputParamKind::ConnectionOrConstant,
+                    true,
+                );
+                graph.add_output_param(node_id, "Stream".into(), MyDataType::Stream);
+            }
         }
     }
 }
@@ -256,6 +306,9 @@ impl NodeTemplateIter for AllMyNodeTemplates {
             fm::Stream::Mix(fm::Mix::new()),
             fm::Stream::Silence(fm::Silence::new()),
             fm::Stream::Empty(fm::Empty::new()),
+            fm::Stream::Envelope(fm::Envelope::new()),
+            fm::Stream::Perlin(fm::Perlin::new()),
+            fm::Stream::WhiteNoise(fm::WhiteNoise::new())
         ]
     }
 }
@@ -435,12 +488,7 @@ impl eframe::App for NodeGraphExample {
                         println!("fetched stream");
                         self.sink.skip_one();
                         println!("stopped sink");
-                        match stream {
-                            fm::Stream::SineWave(s) => { println!("indeed"); self.sink.append(s.clone())},
-                            fm::Stream::ModulatedSineWave(s) => self.sink.append(s),
-                            fm::Stream::Mix(s) => self.sink.append(s),
-                            _ => (),
-                        };
+                        self.sink.append(stream);
                         println!("started stream");
                     },
                     MyResponse::ClearActiveNode => {
@@ -560,6 +608,24 @@ pub fn evaluate_node(
         }
         fm::Stream::Empty(wave) => {
             evaluator.output_stream("Stream", fm::Stream::Empty(wave))
+        }
+        fm::Stream::Envelope(mut wave) => {
+            wave.set_stream(evaluator.input_stream("Stream")?);
+            wave.set_ad(evaluator.input_const("Attack Duration")?);
+            wave.set_a(evaluator.input_const("Attack Amplitude")?);
+            wave.set_dd(evaluator.input_const("Decay Duration")?);
+            wave.set_sd(evaluator.input_const("Sustain Duration")?);
+            wave.set_s(evaluator.input_const("Sustain Amplitude")?);
+            wave.set_rd(evaluator.input_const("Release Duration")?);
+
+            evaluator.output_stream("Stream", fm::Stream::Envelope(wave))
+        }
+        fm::Stream::WhiteNoise(mut wave) => {
+            evaluator.output_stream("Stream", fm::Stream::WhiteNoise(wave))
+        }
+        fm::Stream::Perlin(mut wave) => {
+            wave.set_scale(evaluator.input_const("Scale")?);
+            evaluator.output_stream("Stream", fm::Stream::Perlin(wave))
         }
     }
 }
