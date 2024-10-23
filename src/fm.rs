@@ -8,13 +8,18 @@ use rand;
 #[derive(Debug, Clone)]
 pub enum Stream {
     SineWave ( SineWave ),
+    SquareWave ( SquareWave ),
+    TriangleWave ( TriangleWave ),
+    SawtoothWave ( SawtoothWave ),
     ModulatedSineWave ( ModulatedSineWave ),
     Mix ( Mix ),
-    Silence ( Silence ),
+    Const ( Const ),
     Empty ( Empty ),
     Envelope ( Envelope ),
     Perlin ( Perlin ),
     WhiteNoise ( WhiteNoise ),
+    Add ( Add ),
+    Multiply ( Multiply ),
 }
 
 impl Iterator for Stream {
@@ -23,13 +28,18 @@ impl Iterator for Stream {
     fn next(&mut self) -> Option<Self::Item> {
         match self {
             Self::SineWave(s) => s.next(),
+            Self::SquareWave(s) => s.next(),
+            Self::TriangleWave(s) => s.next(),
+            Self::SawtoothWave(s) => s.next(),
             Self::ModulatedSineWave(s) => s.next(),
             Self::Mix(s) => s.next(),
-            Self::Silence(s) => s.next(),
+            Self::Const(s) => s.next(),
             Self::Envelope ( s ) => s.next(),
             Self::Perlin ( s ) => s.next(),
             Self::WhiteNoise ( s ) => s.next(),
-            Self::Empty(s) => s.next(),
+            Self::Empty (s) => s.next(),
+            Self::Add ( s ) => s.next(),
+            Self::Multiply (s) => s.next(),
         }
     }
 }
@@ -52,13 +62,18 @@ impl Source for Stream {
     fn sample_rate(&self) -> u32 {
         match self {
             Self::SineWave(s) => s.sample_rate(),
+            Self::SquareWave(s) => s.sample_rate(),
+            Self::TriangleWave(s) => s.sample_rate(),
+            Self::SawtoothWave(s) => s.sample_rate(),
             Self::ModulatedSineWave(s) => s.sample_rate(),
             Self::Mix(s) => s.sample_rate(),
-            Self::Silence(s) => s.sample_rate(),
+            Self::Const(s) => s.sample_rate(),
             Self::Envelope ( s ) => s.sample_rate(),
             Self::Perlin ( s ) => s.sample_rate(),
             Self::WhiteNoise ( s ) => s.sample_rate(),
             Self::Empty(s) => s.sample_rate(),
+            Self::Add ( s ) => s.sample_rate(),
+            Self::Multiply (s) => s.sample_rate(),
         }
     }
 
@@ -73,6 +88,7 @@ pub struct SineWave {
     frequency: f32,
     sample_rate: u32,
     current_sample: u32,
+    phase_shift: f32,
 }
 
 impl SineWave {
@@ -81,11 +97,16 @@ impl SineWave {
             frequency: 0f32,
             sample_rate: 44100,
             current_sample: 0,
+            phase_shift: 0f32,
         }
     }
     
     pub fn set_frequency(&mut self, freq: f32) {
         self.frequency = freq;
+    }
+
+    pub fn set_phase_shift(&mut self, shift: f32) {
+        self.phase_shift = shift;
     }
 }
 
@@ -94,7 +115,7 @@ impl Iterator for SineWave {
 
     fn next(&mut self) -> Option<f32> {
         // Compute the next sample in the sine wave
-        let sample = (self.current_sample as f32 * 2.0 * PI * self.frequency / self.sample_rate as f32).sin();
+        let sample = ((self.current_sample as f32 + self.phase_shift) * 2.0 * PI * self.frequency / self.sample_rate as f32).sin();
         self.current_sample += 1;
         Some(sample)
     }
@@ -117,6 +138,190 @@ impl Source for SineWave {
         None
     }
 }
+
+// A struct that generates a sine wave at a given frequency and sample rate.
+#[derive(Debug, Clone)]
+pub struct SquareWave {
+    frequency: f32,
+    sample_rate: u32,
+    current_sample: u32,
+    phase_shift: f32,
+}
+
+impl SquareWave {
+    pub fn new() -> Self {
+        Self {
+            frequency: 0f32,
+            sample_rate: 44100,
+            current_sample: 0,
+            phase_shift: 0f32,
+        }
+    }
+    
+    pub fn set_frequency(&mut self, freq: f32) {
+        self.frequency = freq;
+    }
+
+    pub fn set_phase_shift(&mut self, shift: f32) {
+        self.phase_shift = shift;
+    }
+}
+
+fn square_wave(x: f32) -> f32 {
+    if x % 1f32 <= 0.5 { 1f32 }
+    else { -1f32 }
+}
+
+impl Iterator for SquareWave {
+    type Item = f32;
+
+    fn next(&mut self) -> Option<f32> {
+        // Compute the next sample in the sine wave
+        let sample = square_wave((self.current_sample as f32 + self.phase_shift) * self.frequency / self.sample_rate as f32);
+        self.current_sample += 1;
+        Some(sample)
+    }
+}
+
+impl Source for SquareWave {
+    fn current_frame_len(&self) -> Option<usize> {
+        None
+    }
+
+    fn channels(&self) -> u16 {
+        1 // Mono sound
+    }
+
+    fn sample_rate(&self) -> u32 {
+        self.sample_rate
+    }
+
+    fn total_duration(&self) -> Option<std::time::Duration> {
+        None
+    }
+}
+
+// A struct that generates a sine wave at a given frequency and sample rate.
+#[derive(Debug, Clone)]
+pub struct TriangleWave {
+    frequency: f32,
+    sample_rate: u32,
+    current_sample: u32,
+    phase_shift: f32,
+}
+
+impl TriangleWave {
+    pub fn new() -> Self {
+        Self {
+            frequency: 0f32,
+            sample_rate: 44100,
+            current_sample: 0,
+            phase_shift: 0f32,
+        }
+    }
+    
+    pub fn set_frequency(&mut self, freq: f32) {
+        self.frequency = freq;
+    }
+
+    pub fn set_phase_shift(&mut self, shift: f32) {
+        self.phase_shift = shift;
+    }
+}
+
+fn triangle_wave(x: f32) -> f32 {
+    4.0 * (x + 0.25 - (x + 0.75).floor()).abs() - 1.0
+}
+
+impl Iterator for TriangleWave {
+    type Item = f32;
+
+    fn next(&mut self) -> Option<f32> {
+        // Compute the next sample in the sine wave
+        let sample = triangle_wave((self.current_sample as f32 + self.phase_shift) * self.frequency / self.sample_rate as f32);
+        self.current_sample += 1;
+        Some(sample)
+    }
+}
+
+impl Source for TriangleWave {
+    fn current_frame_len(&self) -> Option<usize> {
+        None
+    }
+
+    fn channels(&self) -> u16 {
+        1 // Mono sound
+    }
+
+    fn sample_rate(&self) -> u32 {
+        self.sample_rate
+    }
+
+    fn total_duration(&self) -> Option<std::time::Duration> {
+        None
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct SawtoothWave {
+    frequency: f32,
+    sample_rate: u32,
+    current_sample: u32,
+    phase_shift: f32,
+}
+
+impl SawtoothWave {
+    pub fn new() -> Self {
+        Self {
+            frequency: 0f32,
+            sample_rate: 44100,
+            current_sample: 0,
+            phase_shift: 0f32,
+        }
+    }
+    
+    pub fn set_frequency(&mut self, freq: f32) {
+        self.frequency = freq;
+    }
+
+    pub fn set_phase_shift(&mut self, shift: f32) {
+        self.phase_shift = shift;
+    }
+}
+
+fn sawtooth_wave(x: f32) -> f32 {
+    x % 1.0
+}
+
+impl Iterator for SawtoothWave {
+    type Item = f32;
+
+    fn next(&mut self) -> Option<f32> {
+        // Compute the next sample in the sine wave
+        let sample = sawtooth_wave((self.current_sample as f32 + self.phase_shift) * self.frequency / self.sample_rate as f32);
+        self.current_sample += 1;
+        Some(sample)
+    }
+}
+
+impl Source for SawtoothWave {
+    fn current_frame_len(&self) -> Option<usize> {
+        None
+    }
+
+    fn channels(&self) -> u16 {
+        1 // Mono sound
+    }
+
+    fn sample_rate(&self) -> u32 {
+        self.sample_rate
+    }
+
+    fn total_duration(&self) -> Option<std::time::Duration> {
+        None
+    }
+}
+
 
 // A struct that generates a sine wave at a given frequency and sample rate modulated by.
 #[derive(Debug, Clone)]
@@ -240,25 +445,33 @@ impl Source for Mix {
 }
 
 #[derive(Debug, Clone)]
-pub struct Silence { sample_rate: u32 }
+pub struct Const { 
+    sample_rate: u32,
+    val: f32,
+}
 
-impl Silence {
+impl Const {
     pub fn new() -> Self {
         Self {
             sample_rate: 44100,
+            val: 0f32
         }
+    }
+
+    pub fn set_val(&mut self, val: f32) {
+        self.val = val;
     }
 }
 
-impl Iterator for Silence {
+impl Iterator for Const {
     type Item = f32;
 
     fn next(&mut self) -> Option<f32> {
-        Some(0f32)
+        Some(self.val)
     }
 }
 
-impl Source for Silence {
+impl Source for Const {
     fn current_frame_len(&self) -> Option<usize> {
         None
     }
@@ -456,6 +669,116 @@ impl Iterator for WhiteNoise {
 }
 
 impl Source for WhiteNoise {
+    fn current_frame_len(&self) -> Option<usize> {
+        None
+    }
+
+    fn channels(&self) -> u16 {
+        1 // Mono sound
+    }
+
+    fn sample_rate(&self) -> u32 {
+        self.sample_rate
+    }
+
+    fn total_duration(&self) -> Option<std::time::Duration> {
+        None
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Add {
+    sample_rate: u32,
+    stream_a: Box<Stream>,
+    stream_b: Box<Stream>,
+}
+
+impl Iterator for Add {
+    type Item = f32;
+
+    fn next(&mut self) -> Option<f32> {
+        // Compute the next sample in the sine wave
+        self.stream_a.next().and_then(|a| { 
+        self.stream_b.next().map(|b| {
+            a + b
+        }) })
+    }
+}
+
+impl Add {
+    pub fn new() -> Self {
+        Self {
+            sample_rate: 44100,
+            stream_a: Box::new(Stream::Empty(Empty::new())),
+            stream_b: Box::new(Stream::Empty(Empty::new())),
+        }
+    }
+
+    pub fn set_stream_a(&mut self, modulator: Stream) {
+        self.stream_a = Box::new(modulator);
+    }
+
+    pub fn set_stream_b(&mut self, modulator: Stream) {
+        self.stream_b = Box::new(modulator);
+    }
+}
+
+impl Source for Add {
+    fn current_frame_len(&self) -> Option<usize> {
+        None
+    }
+
+    fn channels(&self) -> u16 {
+        1 // Mono sound
+    }
+
+    fn sample_rate(&self) -> u32 {
+        self.sample_rate
+    }
+
+    fn total_duration(&self) -> Option<std::time::Duration> {
+        None
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Multiply {
+    sample_rate: u32,
+    stream_a: Box<Stream>,
+    stream_b: Box<Stream>,
+}
+
+impl Iterator for Multiply {
+    type Item = f32;
+
+    fn next(&mut self) -> Option<f32> {
+        // Compute the next sample in the sine wave
+        self.stream_a.next().and_then(|a| { 
+        self.stream_b.next().map(|b| {
+            a * b
+        }) })
+    }
+}
+
+impl Multiply {
+    pub fn new() -> Self {
+        Self {
+            sample_rate: 44100,
+            stream_a: Box::new(Stream::Empty(Empty::new())),
+            stream_b: Box::new(Stream::Empty(Empty::new())),
+        }
+    }
+
+    pub fn set_stream_a(&mut self, modulator: Stream) {
+        self.stream_a = Box::new(modulator);
+    }
+
+    pub fn set_stream_b(&mut self, modulator: Stream) {
+        self.stream_b = Box::new(modulator);
+    }
+}
+
+impl Source for Multiply {
     fn current_frame_len(&self) -> Option<usize> {
         None
     }

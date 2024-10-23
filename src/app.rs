@@ -1,9 +1,9 @@
 use std::{borrow::Cow, collections::HashMap};
 
-use rodio::{OutputStreamHandle, OutputStream, Sink, source::Source};
+use rodio::{OutputStreamHandle, OutputStream, Sink};
 use eframe::egui::{self, DragValue, TextStyle};
 use egui_node_graph2::*;
-use crate::fm::{self, SineWave};
+use crate::fm;
 
 
 // ========= First, define your user data types =============
@@ -71,13 +71,6 @@ impl MyValueType {
     }
 }
 
-/// NodeTemplate is a mechanism to define node templates. It's what the graph
-/// will display in the "new node" popup. The user code needs to tell the
-/// library how to convert a NodeTemplate into a Node.
-#[derive(Clone, Copy)]
-#[cfg_attr(feature = "persistence", derive(serde::Serialize, serde::Deserialize))]
-pub enum MyNodeTemplate {}
-
 /// The response type is used to encode side-effects produced when drawing a
 /// node in the graph. Most side-effects (creating new nodes, deleting existing
 /// nodes, handling connections...) are already handled by the library, but this
@@ -128,28 +121,37 @@ impl NodeTemplateTrait for fm::Stream {
     fn node_finder_label(&self, _user_state: &mut Self::UserState) -> Cow<'_, str> {
         Cow::Borrowed(match self {
             Self::SineWave(_) => "Sine Wave",
+            Self::SquareWave(_) => "Square Wave",
+            Self::TriangleWave(_) => "Triangle Wave",
+            Self::SawtoothWave(_) => "Sawtooth",
             Self::ModulatedSineWave(_) => "Modulator",
             Self::Mix(_) => "Mix",
-            Self::Silence(_) => "Silence",
             Self::Empty(_) => "Empty",
             Self::Envelope(_) => "Envelope",
             Self::Perlin (_) => "Perlin Noise",
             Self::WhiteNoise (_) => "White Noise",
-
+            Self::Add (_) => "Add",
+            Self::Multiply (_) => "Multiply",
+            Self::Const(_) => "Const",
         })
     }
 
     // this is what allows the library to show collapsible lists in the node finder.
     fn node_finder_categories(&self, _user_state: &mut Self::UserState) -> Vec<&'static str> {
         match self {
-            Self::SineWave(_) => vec![],
+            Self::SineWave(_) => vec!["Waves"],
+            Self::SquareWave(_) => vec!["Waves"],
+            Self::TriangleWave(_) => vec!["Waves"],
+            Self::SawtoothWave(_) => vec!["Waves"],
             Self::ModulatedSineWave(_) => vec![],
             Self::Mix(_) => vec![],
-            Self::Silence(_) => vec![],
             Self::Empty(_) => vec![],
             Self::Envelope(_) => vec![],
             Self::Perlin (_) => vec!["Noise"],
             Self::WhiteNoise (_) => vec!["Noise"],
+            Self::Add(_) => vec!["Math"],
+            Self::Multiply(_) => vec!["Math"],
+            Self::Const(_) => vec!["Math"],
         }
     }
 
@@ -200,6 +202,106 @@ impl NodeTemplateTrait for fm::Stream {
                     InputParamKind::ConnectionOrConstant,
                     true,
                 );
+
+                graph.add_input_param(
+                    node_id,
+                    "Phase Shift".into(),
+                    MyDataType::Const,
+                    MyValueType::Const { value: 0.0 },
+                    InputParamKind::ConnectionOrConstant,
+                    true,
+                );
+
+                graph.add_output_param(node_id, "Stream".into(), MyDataType::Stream);
+            }
+            Self::SquareWave(_) => {
+                // The first input param doesn't use the closure so we can comment
+                // it in more detail.
+                graph.add_input_param(
+                    node_id,
+                    // This is the name of the parameter. Can be later used to
+                    // retrieve the value. Parameter names should be unique.
+                    "Frequency".into(),
+                    // The data type for this input. In this case, a scalar
+                    MyDataType::Const,
+                    // The value type for this input. We store zero as default
+                    MyValueType::Const { value: 440.0 }, 
+                    // The input parameter kind. This allows defining whether a
+                    // parameter accepts input connections and/or an inline
+                    // widget to set its value.
+                    InputParamKind::ConnectionOrConstant,
+                    true,
+                );
+
+                graph.add_input_param(
+                    node_id,
+                    "Phase Shift".into(),
+                    MyDataType::Const,
+                    MyValueType::Const { value: 0.0 },
+                    InputParamKind::ConnectionOrConstant,
+                    true,
+                );
+
+                graph.add_output_param(node_id, "Stream".into(), MyDataType::Stream);
+            }
+            Self::TriangleWave(_) => {
+                // The first input param doesn't use the closure so we can comment
+                // it in more detail.
+                graph.add_input_param(
+                    node_id,
+                    // This is the name of the parameter. Can be later used to
+                    // retrieve the value. Parameter names should be unique.
+                    "Frequency".into(),
+                    // The data type for this input. In this case, a scalar
+                    MyDataType::Const,
+                    // The value type for this input. We store zero as default
+                    MyValueType::Const { value: 440.0 }, 
+                    // The input parameter kind. This allows defining whether a
+                    // parameter accepts input connections and/or an inline
+                    // widget to set its value.
+                    InputParamKind::ConnectionOrConstant,
+                    true,
+                );
+
+                graph.add_input_param(
+                    node_id,
+                    "Phase Shift".into(),
+                    MyDataType::Const,
+                    MyValueType::Const { value: 0.0 },
+                    InputParamKind::ConnectionOrConstant,
+                    true,
+                );
+
+                graph.add_output_param(node_id, "Stream".into(), MyDataType::Stream);
+            }
+            Self::SawtoothWave(_) => {
+                // The first input param doesn't use the closure so we can comment
+                // it in more detail.
+                graph.add_input_param(
+                    node_id,
+                    // This is the name of the parameter. Can be later used to
+                    // retrieve the value. Parameter names should be unique.
+                    "Frequency".into(),
+                    // The data type for this input. In this case, a scalar
+                    MyDataType::Const,
+                    // The value type for this input. We store zero as default
+                    MyValueType::Const { value: 440.0 }, 
+                    // The input parameter kind. This allows defining whether a
+                    // parameter accepts input connections and/or an inline
+                    // widget to set its value.
+                    InputParamKind::ConnectionOrConstant,
+                    true,
+                );
+
+                graph.add_input_param(
+                    node_id,
+                    "Phase Shift".into(),
+                    MyDataType::Const,
+                    MyValueType::Const { value: 0.0 },
+                    InputParamKind::ConnectionOrConstant,
+                    true,
+                );
+
                 graph.add_output_param(node_id, "Stream".into(), MyDataType::Stream);
             }
             Self::ModulatedSineWave(_) => {
@@ -253,7 +355,18 @@ impl NodeTemplateTrait for fm::Stream {
 
                 graph.add_output_param(node_id, "Stream".into(), MyDataType::Stream);
             }
-            Self::Silence(_) => { graph.add_output_param(node_id, "Stream".into(), MyDataType::Stream); },
+            Self::Const(_) => {
+                graph.add_input_param(
+                    node_id,
+                    "Value".into(),
+                    MyDataType::Const,
+                    MyValueType::Const { value: 0.5 },
+                    InputParamKind::ConnectionOrConstant,
+                    true,
+                );
+
+                graph.add_output_param(node_id, "Stream".into(), MyDataType::Stream); 
+            },
             Self::Empty(_) => { graph.add_output_param(node_id, "Stream".into(), MyDataType::Stream); },
             Self::Envelope(_) => {
                 graph.add_input_param(
@@ -288,6 +401,48 @@ impl NodeTemplateTrait for fm::Stream {
                 );
                 graph.add_output_param(node_id, "Stream".into(), MyDataType::Stream);
             }
+            Self::Add(_) => {
+                graph.add_input_param(
+                    node_id,
+                    "A".into(),
+                    MyDataType::Stream,
+                    MyValueType::Stream { value: fm::Stream::Empty(fm::Empty::new()) },
+                    InputParamKind::ConnectionOnly,
+                    true,
+                );                 
+                
+                graph.add_input_param(
+                    node_id,
+                    "B".into(),
+                    MyDataType::Stream,
+                    MyValueType::Stream { value: fm::Stream::Empty(fm::Empty::new()) },
+                    InputParamKind::ConnectionOnly,
+                    true,
+                );
+
+                graph.add_output_param(node_id, "Stream".into(), MyDataType::Stream);
+            }
+            Self::Multiply(_) => {
+                graph.add_input_param(
+                    node_id,
+                    "A".into(),
+                    MyDataType::Stream,
+                    MyValueType::Stream { value: fm::Stream::Empty(fm::Empty::new()) },
+                    InputParamKind::ConnectionOnly,
+                    true,
+                );                 
+                
+                graph.add_input_param(
+                    node_id,
+                    "B".into(),
+                    MyDataType::Stream,
+                    MyValueType::Stream { value: fm::Stream::Empty(fm::Empty::new()) },
+                    InputParamKind::ConnectionOnly,
+                    true,
+                );
+
+                graph.add_output_param(node_id, "Stream".into(), MyDataType::Stream);
+            }
         }
     }
 }
@@ -302,13 +457,18 @@ impl NodeTemplateIter for AllMyNodeTemplates {
         // boilerplate in enumerating all variants of an enum.
         vec![
             fm::Stream::SineWave(fm::SineWave::new()),
+            fm::Stream::SquareWave(fm::SquareWave::new()),
+            fm::Stream::TriangleWave(fm::TriangleWave::new()),
+            fm::Stream::SawtoothWave(fm::SawtoothWave::new()),
             fm::Stream::ModulatedSineWave(fm::ModulatedSineWave::new()),
             fm::Stream::Mix(fm::Mix::new()),
-            fm::Stream::Silence(fm::Silence::new()),
+            fm::Stream::Const(fm::Const::new()),
             fm::Stream::Empty(fm::Empty::new()),
             fm::Stream::Envelope(fm::Envelope::new()),
             fm::Stream::Perlin(fm::Perlin::new()),
-            fm::Stream::WhiteNoise(fm::WhiteNoise::new())
+            fm::Stream::WhiteNoise(fm::WhiteNoise::new()),
+            fm::Stream::Add(fm::Add::new()),
+            fm::Stream::Multiply(fm::Multiply::new()),
         ]
     }
 }
@@ -407,17 +567,17 @@ pub struct NodeGraphExample {
     user_state: MyGraphState,
 
     sink: Sink,
-    stream: OutputStream, 
-    stream_handle: OutputStreamHandle,
+    _stream: OutputStream, 
+    _stream_handle: OutputStreamHandle,
 }
 
 impl Default for NodeGraphExample {
     fn default() -> Self {
-        let (stream, stream_handle) = OutputStream::try_default().unwrap();
-        let sink = Sink::try_new(&stream_handle).unwrap();
+        let (_stream, _stream_handle) = OutputStream::try_default().unwrap();
+        let sink = Sink::try_new(&_stream_handle).unwrap();
         Self { 
-            stream,
-            stream_handle,
+            _stream,
+            _stream_handle,
             sink, 
             state: MyEditorState::default(),
             user_state: MyGraphState::default()
@@ -589,7 +749,23 @@ pub fn evaluate_node(
     match node.user_data.template.clone() {
         fm::Stream::SineWave(mut wave) => {
             wave.set_frequency(evaluator.input_const("Frequency")?);
+            wave.set_phase_shift(evaluator.input_const("Phase Shift")?);
             evaluator.output_stream("Stream", fm::Stream::SineWave(wave))
+        }
+        fm::Stream::SquareWave(mut wave) => {
+            wave.set_frequency(evaluator.input_const("Frequency")?);
+            wave.set_phase_shift(evaluator.input_const("Phase Shift")?);
+            evaluator.output_stream("Stream", fm::Stream::SquareWave(wave))
+        }
+        fm::Stream::TriangleWave(mut wave) => {
+            wave.set_frequency(evaluator.input_const("Frequency")?);
+            wave.set_phase_shift(evaluator.input_const("Phase Shift")?);
+            evaluator.output_stream("Stream", fm::Stream::TriangleWave(wave))
+        }
+        fm::Stream::SawtoothWave(mut wave) => {
+            wave.set_frequency(evaluator.input_const("Frequency")?);
+            wave.set_phase_shift(evaluator.input_const("Phase Shift")?);
+            evaluator.output_stream("Stream", fm::Stream::SawtoothWave(wave))
         }
         fm::Stream::ModulatedSineWave(mut wave) => {
             wave.set_frequency(evaluator.input_const("Frequency")?);
@@ -600,11 +776,14 @@ pub fn evaluate_node(
         fm::Stream::Mix(mut wave) => {
             wave.set_stream_a(evaluator.input_stream("A")?);
             wave.set_stream_b(evaluator.input_stream("B")?);
+            wave.set_p(evaluator.input_const("p")?);
 
             evaluator.output_stream("Stream", fm::Stream::Mix(wave))
         }
-        fm::Stream::Silence(wave) => {
-            evaluator.output_stream("Stream", fm::Stream::Silence(wave))
+        fm::Stream::Const(mut wave) => {
+            wave.set_val(evaluator.input_const("Value")?);
+
+            evaluator.output_stream("Stream", fm::Stream::Const(wave))
         }
         fm::Stream::Empty(wave) => {
             evaluator.output_stream("Stream", fm::Stream::Empty(wave))
@@ -620,12 +799,23 @@ pub fn evaluate_node(
 
             evaluator.output_stream("Stream", fm::Stream::Envelope(wave))
         }
-        fm::Stream::WhiteNoise(mut wave) => {
+        fm::Stream::WhiteNoise(wave) => {
             evaluator.output_stream("Stream", fm::Stream::WhiteNoise(wave))
         }
         fm::Stream::Perlin(mut wave) => {
             wave.set_scale(evaluator.input_const("Scale")?);
             evaluator.output_stream("Stream", fm::Stream::Perlin(wave))
+        }
+        fm::Stream::Add(mut wave) => {
+            wave.set_stream_a(evaluator.input_stream("A")?);
+            wave.set_stream_b(evaluator.input_stream("B")?);
+
+            evaluator.output_stream("Stream", fm::Stream::Add(wave))
+        }fm::Stream::Multiply(mut wave) => {
+            wave.set_stream_a(evaluator.input_stream("A")?);
+            wave.set_stream_b(evaluator.input_stream("B")?);
+
+            evaluator.output_stream("Stream", fm::Stream::Multiply(wave))
         }
     }
 }
