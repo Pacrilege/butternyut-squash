@@ -414,7 +414,7 @@ impl Iterator for Perlin {
         // Compute the next sample in the sine wave
         let sample = self.perl.get([(self.current_sample as f32 * self.scale / self.sample_rate as f32) as f64]);
         self.current_sample += 1;
-        Some(sample as f32)
+        Some(sample as f32 * 2.0 - 1.0)
     }
 }
 
@@ -451,7 +451,7 @@ impl Iterator for WhiteNoise {
     type Item = f32;
 
     fn next(&mut self) -> Option<f32> { 
-        Some(rand::random::<f32>())
+        Some(rand::random::<f32>() * 2.0 - 1.0)
     }
 }
 
